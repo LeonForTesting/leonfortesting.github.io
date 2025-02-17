@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        video {
+            width: 80%;
+            max-width: 600px;
+            border: 2px solid black;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        select,
+        button {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+
+<body>
+    <label>
+        Camera:
+        <select id="cameraSelect"></select>
+    </label>
+    <br>
+
+    <label>
+        Default capture 360p: <input checked type="checkbox" id="use360p">
+    </label>
+    <br>
+
+
+    <label>
+        Enable min Constraints: <input type="checkbox" id="useMin">
+    </label>
+    <br>
+
+    <label>
+        Enable Ideal Constraints: <input type="checkbox" id="useIdeal">
+    </label>
+    <br>
+
+    <video id="video" autoplay playsinline></video>
+    <br>
+
+    <button id="startBtn">Start Camera</button>
+    <button id="stopBtn" disabled>Stop Camera</button>
+    <button id="upgradeBtn" disabled>upgrade to 720p</button>
+
+    <br>
+    <label>
+        current video resolution: <span id="videoResolution" style="color: red;"></span>
+    </label>
+
+    <h4>capture config</h4>
+    <pre id="captureConfig"></pre>
+
+    <h4>stream settings</h4>
+    <pre id="captureSettings"></pre>
+
+    <h4>error log</h4>
+    <div id="errorLog"></div>
+
+    <script>
+        const videoElement = document.getElementById("video");
+        const cameraSelect = document.getElementById("cameraSelect");
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const upgradeBtn = document.getElementById("upgradeBtn");
+
+        const videoResolutionSpan = document.getElementById("videoResolution");
+
+        const use360pCheckbox = document.getElementById("use360p");
+        const useMinCheckbox = document.getElementById("useMin");
+        const useIdealCheckbox = document.getElementById("useIdeal");
+
+
+        const captureConfigDiv = document.getElementById("captureConfig");
+        const captureSettingsDiv = document.getElementById("captureSettings");
+        const errorDiv = document.getElementById("errorLog");
+
+        let stream = null;
+
+        async function getCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === "videoinput");
+
+                console.log('videoDevices ==>', videoDevices);
+
+                cameraSelect.innerHTML = "";
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement("option");
+                    option.value = device.deviceId;
+                    option.textContent = device.label || `Camera ${index + 1}`;
+                    cameraSelect.appendChild(option);
+                });
+
+                if (stream) {
+                    stopCamera();
+                    captureSettingsDiv.textContent = '';
+                }
+
+            } catch (err) {
+                console.error("Error getting cameras:", err);
+            }
+        }
+
+
+        function getConstraints() {
+
+        }
+
+
+        async function startCamera() {
+            if (stream) stopCamera();
+
+            const selectedDeviceId = cameraSelect.value;
+
+            const use360p = use360pCheckbox.checked;
+            const useMin = useMinCheckbox.checked;
+            const useIdeal = useIdealCheckbox.checked;
+
+            const width = use360p ? 640 : 1280;
+            const height = use360p ? 360 : 720;
+
+
+            const defaultConstraints = {
+                video: {
+                    width: { exact: 640 },
+                    height: { exact: 360 }
+                }
+            };
+
+            let constraints = {
+                video: {
+                    width: width,
+                    height: height,
+                    deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                    frameRate: 24,
+                }
+            };
+
+            if (useIdeal && !useMin) {
+                constraints = {
+                    video: {
+                        width: { ideal: width },
+                        height: { ideal: height },
+                        deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                        frameRate: 24,
+                    }
+                };
+            }
+
+            if (useMin && !useIdeal) {
+                constraints = {
+                    video: {
+                        width: { min: width },
+                        height: { min: height },
+                        deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                        frameRate: 24,
+                    }
+                };
+            }
+
+            if (useMin && useIdeal) {
+
+                constraints = {
+                    video: {
+                        width: { min: width, ideal: width },
+                        height: { min: height, ideal: height },
+                        deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                        frameRate: 24,
+                    }
+                };
+            }
+
+            try {
+
+                captureConfigDiv.textContent = JSON.stringify(constraints, null, 4);
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+                videoElement.srcObject = stream;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                upgradeBtn.disabled = false;
+
+                const settings = stream.getVideoTracks()[0].getSettings();
+
+                videoResolutionSpan.textContent = `${settings.width}x${settings.height}`;
+
+                captureSettingsDiv.textContent = JSON.stringify(settings, null, 4);
+
+            } catch (err) {
+                console.error("capture error:", err);
+
+                const preLog = errorDiv.textContent
+                errorDiv.textContent = preLog + '\n' + `error name:${err.name}, error Message: ${err.message}`;
+            }
+        }
+
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+
+                stream = null;
+                captureConfigDiv.textContent = '';
+                captureSettingsDiv.textContent = '';
+
+                videoResolutionSpan.textContent = '';
+
+            }
+        }
+
+
+        function upgradeVideo() {
+
+            if (!stream) {
+                return;
+            }
+
+
+            const useMin = useMinCheckbox.checked;
+            const useIdeal = useIdealCheckbox.checked;
+
+            const width = 1280;
+            const height = 720;
+
+            let constraints = {
+
+                width: { exact: width },
+                height: { exact: height },
+                frameRate: 24,
+
+            };
+
+            if (useIdeal && !useMin) {
+                constraints = {
+
+                    width: { ideal: width },
+                    height: { ideal: height },
+                    frameRate: 24,
+
+                };
+            }
+
+            if (useMin && !useIdeal) {
+                constraints = {
+
+                    width: { min: width },
+                    height: { min: height },
+                    frameRate: 24,
+
+                };
+            }
+
+            if (useMin && useIdeal) {
+
+                constraints = {
+
+                    width: { min: width, ideal: width },
+                    height: { min: height, ideal: height },
+                    frameRate: 24,
+
+                };
+            }
+
+
+            let videoStreamTrack = stream.getVideoTracks()[0];
+
+
+            videoStreamTrack.applyConstraints(constraints).then(() => {
+
+                console.log("applyConstraints constraints:", constraints);
+
+                const settings = stream.getVideoTracks()[0].getSettings();
+
+                videoResolutionSpan.textContent = `${settings.width}x${settings.height}`;
+
+                captureSettingsDiv.textContent = JSON.stringify(settings, null, 4);
+
+                console.log("applyConstraints settings:", settings);
+
+
+                
+                upgradeBtn.disabled = true
+
+            }).catch((ex) => {
+
+                videoResolutionSpan.textContent = '';
+                upgradeBtn.disabled = true
+
+                console.error("applyConstraints error:", err);
+                const preLog = errorDiv.textContent
+                errorDiv.textContent = preLog + '\n' + 'upgrade error: ' + `error name:${err.name}, error Message: ${err.message}`;
+
+            })
+        }
+
+        getCameras();
+        startBtn.addEventListener("click", startCamera);
+        stopBtn.addEventListener("click", stopCamera);
+        upgradeBtn.addEventListener("click", upgradeVideo);
+
+
+
+        navigator.mediaDevices.addEventListener("devicechange", getCameras);
+
+
+        cameraSelect.addEventListener("change", (event) => {
+            if (stream) {
+                startCamera()
+            }
+        });
+
+        use360pCheckbox.addEventListener("change", (event) => {
+            if (stream) {
+                startCamera()
+            }
+        });
+
+
+        useMinCheckbox.addEventListener("change", (event) => {
+            if (stream) {
+                startCamera()
+            }
+        });
+
+        useIdealCheckbox.addEventListener("change", (event) => {
+            if (stream) {
+                startCamera()
+            }
+        });
+
+
+    </script>
+
+</body>
+
+</html>
+
